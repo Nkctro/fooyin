@@ -25,6 +25,7 @@
 
 class QDialogButtonBox;
 class QLabel;
+class QProgressBar;
 class QTableView;
 
 namespace Fooyin {
@@ -54,6 +55,8 @@ private:
     RGScanResultsModel* m_resultsModel;
     QLabel* m_status;
     QDialogButtonBox* m_buttonBox;
+    QProgressBar* m_progress;
+    QMetaObject::Connection m_writeProgressConnection;
 };
 } // namespace RGScanner
 } // namespace Fooyin

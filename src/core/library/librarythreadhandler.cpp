@@ -409,6 +409,8 @@ LibraryThreadHandler::LibraryThreadHandler(DbConnectionPoolPtr dbPool, MusicLibr
                      &LibraryThreadHandler::tracksUpdated);
     QObject::connect(&p->m_trackDatabaseManager, &TrackDatabaseManager::updatedTracksStats, this,
                      &LibraryThreadHandler::tracksStatsUpdated);
+    QObject::connect(&p->m_trackDatabaseManager, &TrackDatabaseManager::writeProgress, this,
+                     &LibraryThreadHandler::writeProgress);
     QObject::connect(&p->m_trackDatabaseManager, &TrackDatabaseManager::removedTracks, this,
                      &LibraryThreadHandler::tracksRemoved);
     QObject::connect(&p->m_scanner, &Worker::finished, this, [this]() { p->finishScanRequest(); });

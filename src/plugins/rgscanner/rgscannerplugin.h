@@ -25,6 +25,7 @@
 #include <gui/plugins/guiplugin.h>
 
 class QDialog;
+class QString;
 
 namespace Fooyin::RGScanner {
 class RGScannerPlugin : public QObject,
@@ -45,9 +46,12 @@ private:
     {
         Track = 0,
         SingleAlbum,
-        Album
+        Album,
+        Library
     };
     void calculateReplayGain(RGScanType type);
+    void calculateReplayGain(RGScanType type, TrackList tracks, const QString& progressLabel);
+    void calculateReplayGainForLibrary();
     void setupReplayGainMenu();
     static QDialog* createRemoveDialog();
 

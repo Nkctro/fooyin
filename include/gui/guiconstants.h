@@ -138,6 +138,7 @@ constexpr auto QuickSearch           = "Library.QuickSearch";
 constexpr auto SearchLibrary         = "Library.SearchLibrary";
 constexpr auto Refresh               = "Library.Refresh";
 constexpr auto Rescan                = "Library.Rescan";
+constexpr auto ReplayGainLibrary     = "Library.ReplayGainAll";
 constexpr auto Stop                  = "Playback.Stop";
 constexpr auto PlayPause             = "Playback.PlayPause";
 constexpr auto Next                  = "Playback.Next";

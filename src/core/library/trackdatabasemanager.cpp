@@ -29,8 +29,15 @@
 #include <utils/database/dbconnectionhandler.h>
 #include <utils/settings/settingsmanager.h>
 
+#include <QtConcurrent>
+
 #include <QFileInfo>
 #include <QLoggingCategory>
+#include <QString>
+#include <QVector>
+
+#include <atomic>
+#include <numeric>
 
 Q_LOGGING_CATEGORY(TRK_DBMAN, "fy.trackdbmanager")
 
@@ -87,24 +94,48 @@ void TrackDatabaseManager::updateTracks(const TrackList& tracks, bool write)
         }
     }
 
-    for(const Track& track : std::as_const(tracksToUpdate)) {
-        if(!mayRun()) {
-            break;
+    QVector<char> readyForDatabase(tracksToUpdate.size(), write ? 0 : 1);
+
+    if(write && !tracksToUpdate.empty()) {
+        QVector<int> indexes(tracksToUpdate.size());
+        std::iota(indexes.begin(), indexes.end(), 0);
+
+        const int total = static_cast<int>(tracksToUpdate.size());
+        std::atomic<int> progress{0};
+
+        QtConcurrent::blockingMap(
+            indexes, [this, &tracksToUpdate, options, total, &progress, &readyForDatabase](int index) {
+                Track& updatedTrack    = tracksToUpdate[index];
+                const QString filepath = updatedTrack.prettyFilepath();
+
+                if(updatedTrack.isInArchive()) {
+                    readyForDatabase[index] = 0;
+                    const int value         = progress.fetch_add(1, std::memory_order_relaxed) + 1;
+                    emit writeProgress(value, total, filepath);
+                    return;
+                }
+
+                const bool success = m_audioLoader->writeTrackMetadata(updatedTrack, options);
+                if(success) {
+                    const QDateTime modifiedTime = QFileInfo{updatedTrack.filepath()}.lastModified();
+                    updatedTrack.setModifiedTime(modifiedTime.isValid() ? modifiedTime.toMSecsSinceEpoch() : 0);
+                }
+                else {
+                    qCWarning(TRK_DBMAN) << "Failed to write metadata to file:" << updatedTrack.filepath();
+                }
+
+                readyForDatabase[index] = success ? 1 : 0;
+                const int value         = progress.fetch_add(1, std::memory_order_relaxed) + 1;
+                emit writeProgress(value, total, filepath);
+            });
+    }
+
+    for(int i = 0; i < tracksToUpdate.size(); ++i) {
+        if(write && readyForDatabase.at(i) == 0) {
+            continue;
         }
 
-        Track updatedTrack{track};
-
-        if(write) {
-            if(m_audioLoader->writeTrackMetadata(updatedTrack, options)) {
-                const QDateTime modifiedTime = QFileInfo{updatedTrack.filepath()}.lastModified();
-                updatedTrack.setModifiedTime(modifiedTime.isValid() ? modifiedTime.toMSecsSinceEpoch() : 0);
-            }
-            else {
-                qCWarning(TRK_DBMAN) << "Failed to write metadata to file:" << updatedTrack.filepath();
-                continue;
-            }
-        }
-
+        Track& updatedTrack = tracksToUpdate[i];
         if(m_trackDatabase.updateTrack(updatedTrack) && m_trackDatabase.updateTrackStats(updatedTrack)) {
             tracksUpdated.push_back(updatedTrack);
         }

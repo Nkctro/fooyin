@@ -22,6 +22,9 @@
 #include <core/constants.h>
 #include <core/coresettings.h>
 #include <core/engine/ffmpeg/ffmpeginput.h>
+
+#include "rgscannerdefs.h"
+#include "rgscanmemorycache.h"
 #include <core/engine/ffmpeg/ffmpegutils.h>
 #include <core/scripting/scriptparser.h>
 #include <core/track.h>
@@ -46,19 +49,39 @@ extern "C"
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QLoggingCategory>
+#include <QThreadPool>
 #include <QString>
 #include <QtConcurrentMap>
 
+#include <algorithm>
+#include <memory>
+#include <mutex>
 #include <ranges>
 
 Q_LOGGING_CATEGORY(REPLAYGAIN, "fy.ffmpegscanner")
 
 using namespace Qt::StringLiterals;
+using Fooyin::RGScanner::MemoryScopedReservation;
 
 constexpr auto FrameFlags   = AV_BUFFERSRC_FLAG_KEEP_REF | AV_BUFFERSRC_FLAG_NO_CHECK_FORMAT | AV_BUFFERSRC_FLAG_PUSH;
 constexpr auto DecoderFlags = Fooyin::AudioDecoder::NoSeeking | Fooyin::AudioDecoder::NoLooping;
 
 namespace {
+int configuredThreadLimit()
+{
+    return Fooyin::RGScanner::currentThreadLimit();
+}
+
+QThreadPool* replayGainThreadPool()
+{
+    static QThreadPool pool;
+    static std::once_flag once;
+    std::call_once(once, [] { pool.setExpiryTimeout(-1); });
+    pool.setMaxThreadCount(configuredThreadLimit());
+    return &pool;
+}
+
+
 struct FilterContextDeleter
 {
     void operator()(AVFilterContext* filter) const
@@ -126,6 +149,7 @@ struct FFmpegContext
 
     Fooyin::AudioFormat format;
     std::unique_ptr<QFile> file;
+    MemoryScopedReservation stagedFile;
     Fooyin::FFmpegDecoder decoder;
     ReplayGainFilter albumFilter;
     ReplayGainFilter trackFilter;
@@ -217,13 +241,24 @@ bool setupTrack(FFmpegContext& context, const Fooyin::Track& track, ReplayGainFi
         return false;
     }
 
+    context.file.reset();
+    context.stagedFile.reset();
+
     Fooyin::AudioSource source;
-    context.file = std::make_unique<QFile>(track.filepath());
-    if(!context.file->open(QIODevice::ReadOnly)) {
-        return false;
-    }
-    source.device   = context.file.get();
     source.filepath = track.filepath();
+    source.device   = nullptr;
+
+    if(context.stagedFile.load(track.filepath())) {
+        source.device = context.stagedFile.device();
+    }
+
+    if(!source.device) {
+        context.file = std::make_unique<QFile>(track.filepath());
+        if(!context.file->open(QIODevice::ReadOnly)) {
+            return false;
+        }
+        source.device = context.file.get();
+    }
 
     const auto format = context.decoder.init(source, track, DecoderFlags);
     if(!format) {
@@ -374,7 +409,7 @@ void FFmpegScanner::calculatePerTrack(const TrackList& tracks, bool truePeak)
         }
     });
 
-    auto future = QtConcurrent::map(p->m_scannedTracks, [truePeak](Track& track) {
+    auto future = QtConcurrent::map(replayGainThreadPool(), p->m_scannedTracks, [truePeak](Track& track) {
         FFmpegContext context{truePeak};
 
         if(setupTrack(context, track, context.trackFilter)) {
@@ -430,7 +465,7 @@ void FFmpegScanner::calculateByAlbumTags(const TrackList& tracks, const QString&
         p->m_albums[album].push_back(track);
     }
 
-    auto future = QtConcurrent::map(p->m_albums, [this, truePeak](auto& album) {
+    auto future = QtConcurrent::map(replayGainThreadPool(), p->m_albums, [this, truePeak](auto& album) {
         FFmpegContext context{truePeak};
         p->scanAlbum(context, album.second);
     });

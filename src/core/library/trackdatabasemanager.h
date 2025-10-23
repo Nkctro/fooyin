@@ -24,6 +24,8 @@
 #include <utils/database/dbconnectionhandler.h>
 #include <utils/worker.h>
 
+#include <QString>
+
 namespace Fooyin {
 class Database;
 class AudioLoader;
@@ -45,6 +47,7 @@ signals:
     void updatedTracks(const Fooyin::TrackList& tracks);
     void updatedTracksStats(const Fooyin::TrackList& tracks);
     void removedTracks(const Fooyin::TrackList& tracks);
+    void writeProgress(int current, int total, const QString& filepath);
 
 public slots:
     void getAllTracks();

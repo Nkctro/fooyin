@@ -310,6 +310,8 @@ UnifiedMusicLibrary::UnifiedMusicLibrary(LibraryManager* libraryManager, DbConne
                      [this](const TrackList& tracks) { p->removeTracks(tracks); });
     QObject::connect(&p->m_threadHandler, &LibraryThreadHandler::gotTracks, this,
                      [this](const TrackList& tracks) { p->loadTracks(tracks); });
+    QObject::connect(&p->m_threadHandler, &LibraryThreadHandler::writeProgress, this,
+                     &MusicLibrary::tracksWriteProgress);
 
     QObject::connect(
         this, &MusicLibrary::tracksLoaded, this, [this]() { p->handleTracksLoaded(); }, Qt::QueuedConnection);

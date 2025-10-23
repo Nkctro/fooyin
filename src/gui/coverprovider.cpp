@@ -49,6 +49,7 @@ Q_LOGGING_CATEGORY(COV_PROV, "fy.coverprovider")
 using namespace Qt::StringLiterals;
 
 constexpr auto MaxSize = 1024;
+constexpr qint64 InlineCoverThreshold = 16LL * 1024 * 1024;
 
 // Used to keep track of tracks without artwork so we don't query the filesystem more than necessary
 std::set<QString> Fooyin::CoverProvider::m_noCoverKeys;
@@ -100,6 +101,43 @@ QSize calculateScaledSize(const QSize& originalSize, int maxSize)
     }
 
     return {newWidth, newHeight};
+}
+
+QImage loadImageFromReader(QImageReader& reader, const QByteArray& formatHint, int requestedSize, const QString& hintType)
+{
+    QIODevice* device   = reader.device();
+    const QString file  = reader.fileName();
+
+    if(!reader.canRead()) {
+        qCDebug(COV_PROV) << "Failed to use format hint" << formatHint << "when trying to load" << hintType << "cover";
+        reader.setFormat({});
+        if(device) {
+            device->seek(0);
+            reader.setDevice(device);
+        }
+        else if(!file.isEmpty()) {
+            reader.setFileName(file);
+        }
+        if(!reader.canRead()) {
+            qCDebug(COV_PROV) << "Failed to load" << hintType << "cover";
+            return {};
+        }
+    }
+
+    const qreal dpr     = Fooyin::Utils::windowDpr();
+    const int maxSize   = (requestedSize == 0) ? MaxSize : requestedSize;
+    const QSize size    = reader.size();
+    if(!size.isEmpty() && (size.width() > maxSize || size.height() > maxSize || dpr > 1.0)) {
+        const auto scaledSize = calculateScaledSize(size, static_cast<int>(maxSize * dpr));
+        reader.setScaledSize(scaledSize);
+    }
+
+    QImage image = reader.read();
+    if(!image.isNull()) {
+        image.setDevicePixelRatio(dpr);
+    }
+
+    return image;
 }
 
 QPixmap loadCachedCover(const QString& key, int size = 0)
@@ -157,65 +195,50 @@ QString findDirectoryCover(const Fooyin::CoverPaths& paths, const Fooyin::Track&
 
 QImage readImage(const QString& path, int requestedSize, const QString& hintType)
 {
+    QFileInfo fileInfo{path};
+    if(!fileInfo.exists()) {
+        return {};
+    }
+
     const QMimeDatabase mimeDb;
     const auto mimeType   = mimeDb.mimeTypeForFile(path, QMimeDatabase::MatchContent);
     const auto formatHint = mimeType.preferredSuffix().toLocal8Bit().toLower();
 
-    QImageReader reader{path, formatHint};
-
-    if(!reader.canRead()) {
-        qCDebug(COV_PROV) << "Failed to use format hint" << formatHint << "when trying to load" << hintType << "cover";
-
-        reader.setFormat({});
-        reader.setFileName(path);
-        if(!reader.canRead()) {
-            qCDebug(COV_PROV) << "Failed to load" << hintType << "cover";
-            return {};
+    if(fileInfo.size() > 0 && fileInfo.size() <= InlineCoverThreshold) {
+        QFile file{path};
+        if(file.open(QIODevice::ReadOnly)) {
+            QByteArray data = file.readAll();
+            if(data.size() == fileInfo.size()) {
+                QBuffer buffer{&data};
+                if(buffer.open(QIODevice::ReadOnly)) {
+                    QImageReader reader{&buffer, formatHint};
+                    QImage image = loadImageFromReader(reader, formatHint, requestedSize, hintType);
+                    if(!image.isNull()) {
+                        return image;
+                    }
+                }
+            }
         }
     }
 
-    const auto size    = reader.size();
-    const auto maxSize = requestedSize == 0 ? MaxSize : requestedSize;
-    const auto dpr     = Fooyin::Utils::windowDpr();
-
-    if(size.width() > maxSize || size.height() > maxSize || dpr > 1.0) {
-        const auto scaledSize = calculateScaledSize(size, static_cast<int>(maxSize * dpr));
-        reader.setScaledSize(scaledSize);
-    }
-
-    QImage image = reader.read();
-    image.setDevicePixelRatio(dpr);
-
-    return image;
+    QImageReader reader{path, formatHint};
+    return loadImageFromReader(reader, formatHint, requestedSize, hintType);
 }
 
 QImage readImage(QByteArray data)
 {
     QBuffer buffer{&data};
+    if(!buffer.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
     const QMimeDatabase mimeDb;
     const auto mimeType   = mimeDb.mimeTypeForData(&buffer);
     const auto formatHint = mimeType.preferredSuffix().toLocal8Bit().toLower();
+    buffer.seek(0);
 
     QImageReader reader{&buffer, formatHint};
-
-    if(!reader.canRead()) {
-        qCDebug(COV_PROV) << "Failed to use format hint" << formatHint << "when trying to load embedded cover";
-
-        reader.setFormat({});
-        reader.setDevice(&buffer);
-        if(!reader.canRead()) {
-            qCDebug(COV_PROV) << "Failed to load embedded cover";
-            return {};
-        }
-    }
-
-    const auto size = reader.size();
-    if(size.width() > MaxSize || size.height() > MaxSize) {
-        const auto scaledSize = calculateScaledSize(size, MaxSize);
-        reader.setScaledSize(scaledSize);
-    }
-
-    return reader.read();
+    return loadImageFromReader(reader, formatHint, MaxSize, u"embedded"_s);
 }
 
 struct CoverLoader

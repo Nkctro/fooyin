@@ -25,10 +25,12 @@
 
 #include <core/library/musiclibrary.h>
 #include <gui/guiconstants.h>
+#include <gui/statusevent.h>
 #include <gui/trackselectioncontroller.h>
 #include <gui/widgets/elapsedprogressdialog.h>
 #include <utils/actions/actioncontainer.h>
 #include <utils/actions/actionmanager.h>
+#include <utils/actions/command.h>
 #include <utils/utils.h>
 
 #include <QDialog>
@@ -38,6 +40,10 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QVBoxLayout>
+
+#include <algorithm>
+#include <ranges>
+#include <utility>
 
 using namespace Qt::StringLiterals;
 
@@ -60,14 +66,23 @@ void RGScannerPlugin::initialise(const GuiPluginContext& context)
 
 void RGScannerPlugin::calculateReplayGain(RGScanType type)
 {
-    const auto tracksToScan = m_selectionController->selectedTracks();
+    TrackList selectedTracks = m_selectionController->selectedTracks();
+    if(selectedTracks.empty()) {
+        return;
+    }
+
+    calculateReplayGain(type, std::move(selectedTracks), tr("Scanning tracks…"));
+}
+
+void RGScannerPlugin::calculateReplayGain(RGScanType type, TrackList tracksToScan, const QString& progressLabel)
+{
     if(tracksToScan.empty()) {
         return;
     }
 
     const auto total = static_cast<int>(tracksToScan.size());
     auto* progress
-        = new ElapsedProgressDialog(tr("Scanning tracks…"), tr("Abort"), 0, total + 1, Utils::getMainWindow());
+        = new ElapsedProgressDialog(progressLabel, tr("Abort"), 0, total + 1, Utils::getMainWindow());
     progress->setAttribute(Qt::WA_DeleteOnClose);
     progress->setValue(0);
     progress->setWindowTitle(tr("ReplayGain Scan Progress"));
@@ -96,6 +111,7 @@ void RGScannerPlugin::calculateReplayGain(RGScanType type)
 
     switch(type) {
         case(RGScanType::Track):
+        case(RGScanType::Library):
             scanner->calculatePerTrack(tracksToScan);
             break;
         case(RGScanType::SingleAlbum):
@@ -107,6 +123,25 @@ void RGScannerPlugin::calculateReplayGain(RGScanType type)
     }
 
     progress->startTimer();
+}
+
+void RGScannerPlugin::calculateReplayGainForLibrary()
+{
+    if(!m_library) {
+        return;
+    }
+
+    TrackList tracks = m_library->tracks();
+    std::erase_if(tracks, [](const Track& track) {
+        return !track.isValid() || !track.isEnabled() || track.isInArchive();
+    });
+
+    if(tracks.empty()) {
+        StatusEvent::post(tr("No suitable tracks found in the library for ReplayGain calculation"), 3000);
+        return;
+    }
+
+    calculateReplayGain(RGScanType::Library, std::move(tracks), tr("Scanning entire library…"));
 }
 
 void RGScannerPlugin::setupReplayGainMenu()
@@ -181,6 +216,18 @@ void RGScannerPlugin::setupReplayGainMenu()
     replayGainMenu->menu()->addAction(rgSingleAlbumAction);
     replayGainMenu->menu()->addAction(rgAlbumAction);
     replayGainMenu->menu()->addAction(rgRemoveAction);
+
+    if(auto* libraryMenu = m_actionManager->actionContainer(Constants::Menus::Library)) {
+        auto* rgLibraryAction = new QAction(Utils::iconFromTheme(Constants::Icons::RescanLibrary),
+                                            tr("Calculate ReplayGain for entire library"), window);
+        rgLibraryAction->setStatusTip(tr("Calculate ReplayGain values for every writable track in the library"));
+        auto* rgLibraryCommand
+            = m_actionManager->registerAction(rgLibraryAction, Constants::Actions::ReplayGainLibrary);
+        rgLibraryCommand->setCategories({tr("Library")});
+
+        QObject::connect(rgLibraryAction, &QAction::triggered, this, &RGScannerPlugin::calculateReplayGainForLibrary);
+        libraryMenu->addAction(rgLibraryCommand);
+    }
 }
 
 QDialog* RGScannerPlugin::createRemoveDialog()

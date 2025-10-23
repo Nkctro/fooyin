@@ -29,6 +29,8 @@
 
 #include <QFile>
 #include <QLoggingCategory>
+#include <QByteArray>
+#include <memory>
 
 Q_DECLARE_LOGGING_CATEGORY(WAVEBAR)
 
@@ -61,6 +63,7 @@ private:
     std::unique_ptr<AudioDecoder> m_decoder;
     DbConnectionPoolPtr m_dbPool;
     std::unique_ptr<DbConnectionHandler> m_dbHandler;
+    QByteArray m_stagedData;
     WaveBarDatabase m_waveDb;
 
     Track m_track;

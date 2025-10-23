@@ -26,6 +26,8 @@
 
 #include <QDebug>
 #include <QFile>
+#include <QBuffer>
+#include <QFileInfo>
 
 #include <cfenv>
 #include <utility>
@@ -235,16 +237,47 @@ QString WaveformGenerator::setup(const Track& track, int samplesPerChannel)
         return {};
     }
 
+    static constexpr qint64 MaxInMemorySize = 128LL * 1024 * 1024;
+
+    m_stagedData.clear();
+    m_file.reset();
+
     AudioSource source;
     source.filepath = track.filepath();
+    source.device   = nullptr;
+
     if(!track.isInArchive()) {
-        m_file = std::make_unique<QFile>(track.filepath());
-        if(!m_file->open(QIODevice::ReadOnly)) {
+        QFileInfo fileInfo{track.filepath()};
+        if(fileInfo.exists() && fileInfo.size() > 0 && fileInfo.size() <= MaxInMemorySize) {
+            QFile tempFile{track.filepath()};
+            if(tempFile.open(QIODevice::ReadOnly)) {
+                m_stagedData = tempFile.readAll();
+                if(m_stagedData.size() == fileInfo.size()) {
+                    auto buffer = std::make_unique<QBuffer>(&m_stagedData);
+                    if(buffer->open(QIODevice::ReadOnly)) {
+                        m_file = std::move(buffer);
+                    }
+                    else {
+                        m_stagedData.clear();
+                    }
+                }
+                else {
+                    m_stagedData.clear();
+                }
+            }
+        }
+    }
+
+    if(!m_file) {
+        auto fileDevice = std::make_unique<QFile>(track.filepath());
+        if(!fileDevice->open(QIODevice::ReadOnly)) {
             qCWarning(WAVEBAR) << "Failed to open" << track.filepath();
             return {};
         }
-        source.device = m_file.get();
+        m_file = std::move(fileDevice);
     }
+
+    source.device = m_file.get();
 
     const auto format = m_decoder->init(source, track, AudioDecoder::NoSeeking | AudioDecoder::NoInfiniteLooping);
     if(!format) {

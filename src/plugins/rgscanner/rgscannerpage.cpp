@@ -21,6 +21,7 @@
 
 #include "rgscanner.h"
 #include "rgscannerdefs.h"
+#include "rgscanmemorycache.h"
 
 #include <gui/widgets/scriptlineedit.h>
 #include <utils/settings/settingsmanager.h>
@@ -30,6 +31,10 @@
 #include <QGroupBox>
 #include <QLabel>
 #include <QRadioButton>
+#include <QSpinBox>
+#include <QCheckBox>
+
+#include <algorithm>
 
 using namespace Qt::StringLiterals;
 
@@ -52,6 +57,10 @@ private:
     QRadioButton* m_samplePeak;
     QRadioButton* m_truePeak;
     ScriptLineEdit* m_albumGroupScript;
+    QCheckBox* m_useMemoryCache;
+    QLabel* m_memoryRatioLabel;
+    QSpinBox* m_memoryRatio;
+    QSpinBox* m_threadLimit;
 };
 
 RGScannerPageWidget::RGScannerPageWidget(SettingsManager* settings)
@@ -59,6 +68,10 @@ RGScannerPageWidget::RGScannerPageWidget(SettingsManager* settings)
     , m_samplePeak{new QRadioButton(tr("Use sample peak for calculating peaks"), this)}
     , m_truePeak{new QRadioButton(tr("Use true peak for calculating peaks"), this)}
     , m_albumGroupScript{new ScriptLineEdit(this)}
+    , m_useMemoryCache{new QCheckBox(tr("Stage files in memory during scanning"), this)}
+    , m_memoryRatioLabel{new QLabel(tr("Memory usage limit") + ":"_L1, this)}
+    , m_memoryRatio{new QSpinBox(this)}
+    , m_threadLimit{new QSpinBox(this)}
 {
     auto* scannerGroup  = new QGroupBox(tr("Scanner"), this);
     auto* scannerLayout = new QGridLayout(scannerGroup);
@@ -86,11 +99,34 @@ RGScannerPageWidget::RGScannerPageWidget(SettingsManager* settings)
     albumGroupLabel->setToolTip(albumGroupToolTip);
     m_albumGroupScript->setToolTip(albumGroupToolTip);
 
+    m_memoryRatio->setRange(1, MaxMemoryCacheRatio);
+    m_memoryRatio->setSuffix(QStringLiteral("%"));
+    m_memoryRatio->setEnabled(false);
+    m_memoryRatio->setToolTip(
+        tr("Maximum percentage of system RAM used to stage files temporarily. Useful for slow mechanical disks."));
+    m_memoryRatioLabel->setToolTip(m_memoryRatio->toolTip());
+    m_memoryRatioLabel->setEnabled(false);
+    m_useMemoryCache->setToolTip(
+        tr("Copy files into memory before scanning to reduce disk seeks. Disable if you do not have enough RAM."));
+    QObject::connect(m_useMemoryCache, &QCheckBox::toggled, m_memoryRatio, &QWidget::setEnabled);
+    QObject::connect(m_useMemoryCache, &QCheckBox::toggled, m_memoryRatioLabel, &QWidget::setEnabled);
+
+    auto* threadLimitLabel = new QLabel(tr("Maximum concurrent tracks") + ":"_L1, this);
+    m_threadLimit->setRange(1, Fooyin::RGScanner::MaxThreadLimit);
+    m_threadLimit->setValue(Fooyin::RGScanner::DefaultThreadLimit);
+    m_threadLimit->setToolTip(
+        tr("Higher values speed up scanning on fast SSD/NVMe storage. Lower values reduce load on slower disks."));
+
     row = 0;
     optionsLayout->addWidget(m_truePeak, row++, 0, 1, 2);
     optionsLayout->addWidget(m_samplePeak, row++, 0, 1, 2);
     optionsLayout->addWidget(albumGroupLabel, row, 0);
     optionsLayout->addWidget(m_albumGroupScript, row++, 1);
+    optionsLayout->addWidget(m_useMemoryCache, row++, 0, 1, 2);
+    optionsLayout->addWidget(m_memoryRatioLabel, row, 0);
+    optionsLayout->addWidget(m_memoryRatio, row++, 1);
+    optionsLayout->addWidget(threadLimitLabel, row, 0);
+    optionsLayout->addWidget(m_threadLimit, row++, 1);
 
     auto* layout = new QGridLayout(this);
 
@@ -115,6 +151,19 @@ void RGScannerPageWidget::load()
     m_samplePeak->setChecked(!m_truePeak->isChecked());
     m_albumGroupScript->setText(
         m_settings->fileValue(AlbumGroupScriptSetting, QString::fromLatin1(DefaultAlbumGroupScript)).toString());
+    const int savedLimit = m_settings->fileValue(ThreadLimitSetting, DefaultThreadLimit).toInt();
+    m_threadLimit->setValue(std::clamp(savedLimit, 1, MaxThreadLimit));
+
+    const bool memoryEnabled = m_settings->fileValue(MemoryCacheEnabledSetting, false).toBool();
+    const int memoryRatio    = std::clamp(m_settings->fileValue(MemoryCacheRatioSetting, DefaultMemoryCacheRatio).toInt(),
+                                       1, MaxMemoryCacheRatio);
+    m_useMemoryCache->setChecked(memoryEnabled);
+    m_memoryRatio->setValue(memoryRatio);
+    m_memoryRatio->setEnabled(memoryEnabled);
+    m_memoryRatioLabel->setEnabled(memoryEnabled);
+
+    MemoryCache::instance().updateConfig(memoryEnabled, memoryRatio);
+    setThreadLimit(m_threadLimit->value());
 }
 
 void RGScannerPageWidget::apply()
@@ -127,6 +176,12 @@ void RGScannerPageWidget::apply()
 
     m_settings->fileSet(TruePeakSetting, m_truePeak->isChecked());
     m_settings->fileSet(AlbumGroupScriptSetting, m_albumGroupScript->text());
+    m_settings->fileSet(MemoryCacheEnabledSetting, m_useMemoryCache->isChecked());
+    m_settings->fileSet(MemoryCacheRatioSetting, m_memoryRatio->value());
+    m_settings->fileSet(ThreadLimitSetting, m_threadLimit->value());
+
+    MemoryCache::instance().updateConfig(m_useMemoryCache->isChecked(), m_memoryRatio->value());
+    setThreadLimit(m_threadLimit->value());
 }
 
 void RGScannerPageWidget::reset()
@@ -134,6 +189,18 @@ void RGScannerPageWidget::reset()
     m_settings->fileRemove(ScannerOption);
     m_settings->fileRemove(TruePeakSetting);
     m_settings->fileRemove(AlbumGroupScriptSetting);
+    m_settings->fileRemove(MemoryCacheEnabledSetting);
+    m_settings->fileRemove(MemoryCacheRatioSetting);
+    m_settings->fileRemove(ThreadLimitSetting);
+
+    MemoryCache::instance().updateConfig(false, DefaultMemoryCacheRatio);
+    const int defaultLimit = defaultThreadLimit();
+    setThreadLimit(defaultLimit);
+    m_threadLimit->setValue(defaultLimit);
+    m_useMemoryCache->setChecked(false);
+    m_memoryRatio->setValue(DefaultMemoryCacheRatio);
+    m_memoryRatio->setEnabled(false);
+    m_memoryRatioLabel->setEnabled(false);
 }
 
 RGScannerPage::RGScannerPage(SettingsManager* settings, QObject* parent)

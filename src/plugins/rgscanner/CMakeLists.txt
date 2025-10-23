@@ -1,9 +1,11 @@
-find_package(Ebur128 QUIET)
+if(NOT TARGET Ebur128::Ebur128)
+    find_package(Ebur128 QUIET)
+endif()
 
-if(NOT Ebur128_FOUND)
-    message(STATUS "Ebur128 not found; ebur128 scanner will not be available.")
-else()
+if(TARGET Ebur128::Ebur128)
     set(HAVE_EBUR128 TRUE)
+else()
+    message(STATUS "Ebur128 not found; ebur128 scanner will not be available.")
 endif()
 
 create_fooyin_plugin_internal(
@@ -24,6 +26,10 @@ create_fooyin_plugin_internal(
             rgscannerplugin.cpp
             rgscannerplugin.h
             rgscannerdefs.h
+            rgscanmemorycache.cpp
+            rgscanmemorycache.h
+            rgscanmemorycache.cpp
+            rgscanmemorycache.h
 )
 
 target_include_directories(rgscanner PRIVATE ${FFMPEG_INCLUDE_DIRS})
@@ -33,4 +39,3 @@ if(HAVE_EBUR128)
     target_sources(rgscanner PRIVATE ebur128scanner.cpp ebur128scanner.h)
     target_compile_definitions(rgscanner PRIVATE HAVE_EBUR128)
 endif()
-

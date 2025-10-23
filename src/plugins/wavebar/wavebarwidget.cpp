@@ -34,10 +34,15 @@
 #include <QActionGroup>
 #include <QContextMenuEvent>
 #include <QMenu>
+#include <QTimerEvent>
 #include <QVBoxLayout>
 
 using namespace std::chrono_literals;
 using namespace Qt::StringLiterals;
+
+namespace {
+constexpr int RescaleDelayMs = 75;
+} // namespace
 
 namespace Fooyin::WaveBar {
 WaveBarWidget::WaveBarWidget(WaveformBuilder* builder, PlayerController* playerController, SettingsManager* settings,
@@ -133,7 +138,7 @@ void WaveBarWidget::resizeEvent(QResizeEvent* event)
 {
     FyWidget::resizeEvent(event);
 
-    rescaleWaveform();
+    scheduleRescale();
 }
 
 void WaveBarWidget::contextMenuEvent(QContextMenuEvent* event)
@@ -258,6 +263,26 @@ void WaveBarWidget::contextMenuEvent(QContextMenuEvent* event)
 void WaveBarWidget::rescaleWaveform()
 {
     m_builder->rescale(m_seekbar->contentsRect().width());
+}
+
+void WaveBarWidget::scheduleRescale()
+{
+    if(m_rescaleTimer.isActive()) {
+        m_rescaleTimer.stop();
+    }
+    m_rescaleTimer.start(RescaleDelayMs, this);
+}
+
+void WaveBarWidget::timerEvent(QTimerEvent* event)
+{
+    if(event->timerId() == m_rescaleTimer.timerId()) {
+        m_rescaleTimer.stop();
+        rescaleWaveform();
+        event->accept();
+        return;
+    }
+
+    FyWidget::timerEvent(event);
 }
 } // namespace Fooyin::WaveBar
 

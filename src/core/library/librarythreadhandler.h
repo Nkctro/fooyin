@@ -24,6 +24,7 @@
 #include <utils/database/dbconnectionpool.h>
 
 #include <QObject>
+#include <QString>
 
 namespace Fooyin {
 class AudioLoader;
@@ -79,6 +80,7 @@ signals:
     void tracksRemoved(const Fooyin::TrackList& tracks);
 
     void gotTracks(const Fooyin::TrackList& result);
+    void writeProgress(int current, int total, const QString& filepath);
 
 protected:
     void timerEvent(QTimerEvent* event) override;

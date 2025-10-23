@@ -21,6 +21,9 @@
 
 #include <gui/fywidget.h>
 
+#include <QBasicTimer>
+#include <QTimerEvent>
+
 namespace Fooyin {
 class PlayerController;
 class SeekContainer;
@@ -50,9 +53,11 @@ protected:
     void showEvent(QShowEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
+    void timerEvent(QTimerEvent* event) override;
 
 private:
     void rescaleWaveform();
+    void scheduleRescale();
 
     PlayerController* m_playerController;
     SettingsManager* m_settings;
@@ -60,6 +65,7 @@ private:
     SeekContainer* m_container;
     WaveSeekBar* m_seekbar;
     WaveformBuilder* m_builder;
+    QBasicTimer m_rescaleTimer;
 };
 } // namespace WaveBar
 } // namespace Fooyin

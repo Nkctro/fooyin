@@ -20,20 +20,45 @@
 #include "ebur128scanner.h"
 
 #include <core/constants.h>
+#include <core/coresettings.h>
 #include <core/engine/audioconverter.h>
+
+#include "rgscannerdefs.h"
+#include "rgscanmemorycache.h"
 
 #include <QFile>
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QLoggingCategory>
+#include <QThreadPool>
 #include <QString>
 #include <QtConcurrentMap>
+
+#include <algorithm>
+#include <memory>
+#include <mutex>
 
 Q_LOGGING_CATEGORY(EBUR128, "fy.ebur128")
 
 constexpr auto ReferenceLUFS  = -18;
 constexpr auto BufferSize     = 10240;
 constexpr auto SingleAlbumKey = "Album";
+
+namespace {
+int configuredThreadLimit()
+{
+    return Fooyin::RGScanner::currentThreadLimit();
+}
+
+QThreadPool* replayGainThreadPool()
+{
+    static QThreadPool pool;
+    static std::once_flag once;
+    std::call_once(once, [] { pool.setExpiryTimeout(-1); });
+    pool.setMaxThreadCount(configuredThreadLimit());
+    return &pool;
+}
+}
 
 namespace Fooyin::RGScanner {
 Ebur128Scanner::Ebur128Scanner(std::shared_ptr<AudioLoader> audioLoader, QObject* parent)
@@ -81,7 +106,9 @@ void Ebur128Scanner::calculatePerTrack(const TrackList& tracks, bool truePeak)
         }
     });
 
-    auto future = QtConcurrent::map(m_scannedTracks, [this, truePeak](Track& track) { scanTrack(track, truePeak); });
+    auto future = QtConcurrent::map(replayGainThreadPool(), m_scannedTracks, [this, truePeak](Track& track) {
+        scanTrack(track, truePeak);
+    });
 
     m_watcher->setFuture(future);
     m_runningWatchers.fetch_add(1, std::memory_order_acquire);
@@ -114,7 +141,7 @@ void Ebur128Scanner::calculateAsAlbum(const TrackList& tracks, bool truePeak)
         }
     });
 
-    auto future = QtConcurrent::map(m_scannedTracks, [this, truePeak](Track& track) {
+    auto future = QtConcurrent::map(replayGainThreadPool(), m_scannedTracks, [this, truePeak](Track& track) {
         scanTrack(track, truePeak, QString::fromLatin1(SingleAlbumKey));
     });
 
@@ -182,12 +209,25 @@ void Ebur128Scanner::scanTrack(Track& track, bool truePeak, const QString& album
 
     AudioSource source;
     source.filepath = track.filepath();
-    QFile file{source.filepath};
-    if(!file.open(QIODevice::ReadOnly)) {
-        qCWarning(EBUR128) << "Failed to open" << source.filepath;
-        return;
+    source.device   = nullptr;
+
+    MemoryScopedReservation staged;
+    std::unique_ptr<QFile> file;
+
+    if(!track.isInArchive()) {
+        if(staged.load(source.filepath)) {
+            source.device = staged.device();
+        }
     }
-    source.device = &file;
+
+    if(!source.device) {
+        file = std::make_unique<QFile>(source.filepath);
+        if(!file->open(QIODevice::ReadOnly)) {
+            qCWarning(EBUR128) << "Failed to open" << source.filepath;
+            return;
+        }
+        source.device = file.get();
+    }
 
     auto format = decoder->init(source, track, AudioDecoder::NoSeeking | AudioDecoder::NoInfiniteLooping);
     if(!format) {

@@ -23,6 +23,7 @@
 
 #include <core/library/libraryinfo.h>
 #include <core/track.h>
+#include <QString>
 
 #include <QObject>
 
@@ -171,6 +172,7 @@ signals:
     void tracksMetadataChanged(const Fooyin::TrackList& tracks);
     void tracksUpdated(const Fooyin::TrackList& tracks);
     void tracksDeleted(const Fooyin::TrackList& tracks);
+    void tracksWriteProgress(int current, int total, const QString& filepath);
     void tracksSorted(const Fooyin::TrackList& tracks);
 };
 } // namespace Fooyin

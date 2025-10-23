@@ -27,6 +27,7 @@
 
 #include <QTimer>
 
+#include <algorithm>
 #include <ranges>
 
 namespace Fooyin {
@@ -76,7 +77,9 @@ public:
     std::vector<PlaylistContainerItem> m_subheaders;
 
     PlaylistItem m_root;
+    ItemKeyMap m_allItems;
     PendingData m_data;
+    std::vector<UId> m_batchKeys;
     using ContainerKeyMap = std::unordered_map<UId, PlaylistContainerItem*, UId::UIdHash>;
     ContainerKeyMap m_headers;
     PlaylistTrackList m_pendingTracks;
@@ -91,25 +94,39 @@ void PlaylistPopulatorPrivate::reset()
     m_prevSubheaderKey.clear();
     m_prevBaseHeaderKey = nullptr;
     m_prevHeaderKey     = {};
+    m_allItems.clear();
+    m_batchKeys.clear();
+    m_root = PlaylistItem{};
 }
 PlaylistItem* PlaylistPopulatorPrivate::getOrInsertItem(const UId& key, PlaylistItem::ItemType type, const Data& item,
                                                         PlaylistItem* parent, const Md5Hash& baseKey)
 {
-    auto [node, inserted] = m_data.items.try_emplace(key, PlaylistItem{type, item, parent});
-    if(inserted) {
-        node->second.setBaseKey(baseKey);
-        node->second.setKey(key);
-    }
-    PlaylistItem* child = &node->second;
+    auto* parentItem = parent;
 
-    if(!child->pending()) {
-        child->setPending(true);
-        m_data.nodes[parent->key()].push_back(key);
+    auto [storageIt, inserted] = m_allItems.try_emplace(key, PlaylistItem{type, item, parentItem});
+    PlaylistItem& storageItem  = storageIt->second;
+
+    if(inserted) {
+        storageItem.setBaseKey(baseKey);
+        storageItem.setKey(key);
+    }
+    else {
+        storageItem.setData(item);
+    }
+
+    const UId parentKey = parentItem ? parentItem->key() : UId{};
+
+    if(!storageItem.pending()) {
+        storageItem.setPending(true);
+        m_batchKeys.push_back(key);
+        m_data.nodes[parentKey].push_back(key);
         if(type != PlaylistItem::Track) {
             m_data.containerOrder.push_back(key);
         }
     }
-    return child;
+
+    m_data.items.insert_or_assign(key, storageItem);
+    return &storageItem;
 }
 
 void PlaylistPopulatorPrivate::updateContainers()
@@ -165,7 +182,7 @@ void PlaylistPopulatorPrivate::iterateHeader(const Track& track, PlaylistItem*& 
     header->addTrack(track);
     m_data.trackParents[track.id()].push_back(key);
 
-    auto* headerItem = &m_data.items.at(key);
+    auto* headerItem = &m_allItems.at(key);
     parent           = headerItem;
     ++m_trackDepth;
 }
@@ -228,7 +245,7 @@ void PlaylistPopulatorPrivate::iterateSubheaders(const Track& track, PlaylistIte
         subheaderContainer->addTrack(track);
         m_data.trackParents[track.id()].push_back(key);
 
-        auto* subheaderItem = &m_data.items.at(key);
+        auto* subheaderItem = &m_allItems.at(key);
         parent              = subheaderItem;
         ++i;
         ++m_trackDepth;
@@ -302,6 +319,8 @@ void PlaylistPopulatorPrivate::runBatch(int size, int index)
 
     for(const PlaylistTrack& track : tracksBatch) {
         if(!m_self->mayRun()) {
+            m_data.items.clear();
+            m_batchKeys.clear();
             return;
         }
         iterateTrack(track, index++);
@@ -310,20 +329,61 @@ void PlaylistPopulatorPrivate::runBatch(int size, int index)
     updateContainers();
 
     if(!m_self->mayRun()) {
+        m_data.items.clear();
+        m_batchKeys.clear();
+        m_data.nodes.clear();
+        m_data.containerOrder.clear();
+        m_data.trackParents.clear();
+        m_data.indexNodes.clear();
         return;
     }
 
-    emit m_self->populated(m_data);
+    PendingData payload;
+    payload.playlistId     = m_data.playlistId;
+    payload.parent         = m_data.parent;
+    payload.row            = m_data.row;
+    payload.nodes          = std::move(m_data.nodes);
+    payload.containerOrder = std::move(m_data.containerOrder);
+    payload.trackParents   = std::move(m_data.trackParents);
+    payload.indexNodes     = std::move(m_data.indexNodes);
+
+    payload.items.reserve(m_batchKeys.size());
+    for(const auto& key : m_batchKeys) {
+        auto it = m_data.items.find(key);
+        if(it != m_data.items.end()) {
+            payload.items.emplace(key, std::move(it->second));
+        }
+    }
+
+    emit m_self->populated(payload);
+
+    for(const auto& key : m_batchKeys) {
+        auto it = m_allItems.find(key);
+        if(it != m_allItems.end() && it->second.type() == PlaylistItem::Track) {
+            m_allItems.erase(it);
+        }
+    }
 
     auto tracksToKeep = std::ranges::views::drop(m_pendingTracks, size);
     PlaylistTrackList tempTracks;
     std::ranges::copy(tracksToKeep, std::back_inserter(tempTracks));
     m_pendingTracks = std::move(tempTracks);
 
+    m_data.items.clear();
+    m_data.parent.clear();
+    m_data.row = -1;
+    m_batchKeys.clear();
+
     m_data.nodes.clear();
+    m_data.containerOrder.clear();
+    m_data.trackParents.clear();
+    m_data.indexNodes.clear();
 
     const auto remaining = static_cast<int>(m_pendingTracks.size());
-    runBatch(remaining, index);
+    if(remaining > 0) {
+        const int nextBatchSize = m_preloadCount > 0 ? std::min(m_preloadCount, remaining) : remaining;
+        runBatch(nextBatchSize, index);
+    }
 }
 
 void PlaylistPopulatorPrivate::runTracksGroup(const std::map<int, PlaylistTrackList>& tracks)
@@ -335,6 +395,8 @@ void PlaylistPopulatorPrivate::runTracksGroup(const std::map<int, PlaylistTrackL
 
         for(const PlaylistTrack& track : trackGroup) {
             if(!m_self->mayRun()) {
+                m_data.items.clear();
+                m_batchKeys.clear();
                 return;
             }
             if(const auto* trackItem = iterateTrack(track, trackIndex++)) {
@@ -347,10 +409,50 @@ void PlaylistPopulatorPrivate::runTracksGroup(const std::map<int, PlaylistTrackL
     updateContainers();
 
     if(!m_self->mayRun()) {
+        m_data.items.clear();
+        m_batchKeys.clear();
+        m_data.nodes.clear();
+        m_data.containerOrder.clear();
+        m_data.trackParents.clear();
+        m_data.indexNodes.clear();
         return;
     }
 
-    emit m_self->populatedTrackGroup(m_data);
+    PendingData payload;
+    payload.playlistId     = m_data.playlistId;
+    payload.parent         = m_data.parent;
+    payload.row            = m_data.row;
+    payload.nodes          = std::move(m_data.nodes);
+    payload.containerOrder = std::move(m_data.containerOrder);
+    payload.trackParents   = std::move(m_data.trackParents);
+    payload.indexNodes     = std::move(m_data.indexNodes);
+
+    payload.items.reserve(m_batchKeys.size());
+    for(const auto& key : m_batchKeys) {
+        auto it = m_data.items.find(key);
+        if(it != m_data.items.end()) {
+            payload.items.emplace(key, std::move(it->second));
+        }
+    }
+
+    emit m_self->populatedTrackGroup(payload);
+
+    for(const auto& key : m_batchKeys) {
+        auto it = m_allItems.find(key);
+        if(it != m_allItems.end() && it->second.type() == PlaylistItem::Track) {
+            m_allItems.erase(it);
+        }
+    }
+
+    m_data.items.clear();
+    m_data.parent.clear();
+    m_data.row = -1;
+    m_batchKeys.clear();
+
+    m_data.nodes.clear();
+    m_data.containerOrder.clear();
+    m_data.trackParents.clear();
+    m_data.indexNodes.clear();
 }
 
 PlaylistPopulator::PlaylistPopulator(PlayerController* playerController, QObject* parent)
