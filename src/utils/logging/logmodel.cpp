@@ -41,12 +41,13 @@ QIcon iconForType(QtMsgType type)
 
     if(QStyle* const currentStyle = QApplication::style()) {
         if(currentStyle != cachedStyle || infoIcon.isNull() || warningIcon.isNull() || criticalIcon.isNull()) {
-            cachedStyle   = currentStyle;
-            infoIcon      = currentStyle->standardIcon(QStyle::SP_MessageBoxInformation);
-            warningIcon   = currentStyle->standardIcon(QStyle::SP_MessageBoxWarning);
-            criticalIcon  = currentStyle->standardIcon(QStyle::SP_MessageBoxCritical);
+            cachedStyle  = currentStyle;
+            infoIcon     = currentStyle->standardIcon(QStyle::SP_MessageBoxInformation);
+            warningIcon  = currentStyle->standardIcon(QStyle::SP_MessageBoxWarning);
+            criticalIcon = currentStyle->standardIcon(QStyle::SP_MessageBoxCritical);
         }
-    } else {
+    }
+    else {
         cachedStyle = nullptr;
     }
 

@@ -48,7 +48,7 @@ Q_LOGGING_CATEGORY(COV_PROV, "fy.coverprovider")
 
 using namespace Qt::StringLiterals;
 
-constexpr auto MaxSize = 1024;
+constexpr auto MaxSize                = 1024;
 constexpr qint64 InlineCoverThreshold = 16LL * 1024 * 1024;
 
 // Used to keep track of tracks without artwork so we don't query the filesystem more than necessary
@@ -103,10 +103,11 @@ QSize calculateScaledSize(const QSize& originalSize, int maxSize)
     return {newWidth, newHeight};
 }
 
-QImage loadImageFromReader(QImageReader& reader, const QByteArray& formatHint, int requestedSize, const QString& hintType)
+QImage loadImageFromReader(QImageReader& reader, const QByteArray& formatHint, int requestedSize,
+                           const QString& hintType)
 {
-    QIODevice* device   = reader.device();
-    const QString file  = reader.fileName();
+    QIODevice* device  = reader.device();
+    const QString file = reader.fileName();
 
     if(!reader.canRead()) {
         qCDebug(COV_PROV) << "Failed to use format hint" << formatHint << "when trying to load" << hintType << "cover";
@@ -124,9 +125,9 @@ QImage loadImageFromReader(QImageReader& reader, const QByteArray& formatHint, i
         }
     }
 
-    const qreal dpr     = Fooyin::Utils::windowDpr();
-    const int maxSize   = (requestedSize == 0) ? MaxSize : requestedSize;
-    const QSize size    = reader.size();
+    const qreal dpr   = Fooyin::Utils::windowDpr();
+    const int maxSize = (requestedSize == 0) ? MaxSize : requestedSize;
+    const QSize size  = reader.size();
     if(!size.isEmpty() && (size.width() > maxSize || size.height() > maxSize || dpr > 1.0)) {
         const auto scaledSize = calculateScaledSize(size, static_cast<int>(maxSize * dpr));
         reader.setScaledSize(scaledSize);

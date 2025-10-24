@@ -19,26 +19,26 @@
 
 #pragma once
 
-#include <atomic>
 #include <algorithm>
+#include <atomic>
 
-#include <core/coresettings.h>
 #include <QThread>
+#include <core/coresettings.h>
 
 namespace Fooyin::RGScanner {
 constexpr auto ScannerPage = "Fooyin.Page.Playback.ReplayGain.Calculating";
 
-constexpr auto ScannerOption              = "RGScanner/Scanner";
-constexpr auto TruePeakSetting            = "RGScanner/TruePeak";
-constexpr auto AlbumGroupScriptSetting    = "RGScanner/AlbumGroupScript";
-constexpr auto DefaultAlbumGroupScript    = "%albumartist% - %date% - %album%";
-constexpr auto ThreadLimitSetting         = "RGScanner/ThreadLimit";
-constexpr auto DefaultThreadLimit         = 4;
-constexpr auto MaxThreadLimit             = 32;
-constexpr auto MemoryCacheEnabledSetting  = "RGScanner/MemoryCacheEnabled";
-constexpr auto MemoryCacheRatioSetting    = "RGScanner/MemoryCacheRatio";
-constexpr auto DefaultMemoryCacheRatio    = 15;
-constexpr auto MaxMemoryCacheRatio        = 90;
+constexpr auto ScannerOption             = "RGScanner/Scanner";
+constexpr auto TruePeakSetting           = "RGScanner/TruePeak";
+constexpr auto AlbumGroupScriptSetting   = "RGScanner/AlbumGroupScript";
+constexpr auto DefaultAlbumGroupScript   = "%albumartist% - %date% - %album%";
+constexpr auto ThreadLimitSetting        = "RGScanner/ThreadLimit";
+constexpr auto DefaultThreadLimit        = 4;
+constexpr auto MaxThreadLimit            = 32;
+constexpr auto MemoryCacheEnabledSetting = "RGScanner/MemoryCacheEnabled";
+constexpr auto MemoryCacheRatioSetting   = "RGScanner/MemoryCacheRatio";
+constexpr auto DefaultMemoryCacheRatio   = 15;
+constexpr auto MaxMemoryCacheRatio       = 90;
 
 inline std::atomic<int> g_threadLimitCache{-1};
 

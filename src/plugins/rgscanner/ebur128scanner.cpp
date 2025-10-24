@@ -23,15 +23,15 @@
 #include <core/coresettings.h>
 #include <core/engine/audioconverter.h>
 
-#include "rgscannerdefs.h"
 #include "rgscanmemorycache.h"
+#include "rgscannerdefs.h"
 
 #include <QFile>
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QLoggingCategory>
-#include <QThreadPool>
 #include <QString>
+#include <QThreadPool>
 #include <QtConcurrentMap>
 
 #include <algorithm>
@@ -58,7 +58,7 @@ QThreadPool* replayGainThreadPool()
     pool.setMaxThreadCount(configuredThreadLimit());
     return &pool;
 }
-}
+} // namespace
 
 namespace Fooyin::RGScanner {
 Ebur128Scanner::Ebur128Scanner(std::shared_ptr<AudioLoader> audioLoader, QObject* parent)
@@ -106,9 +106,8 @@ void Ebur128Scanner::calculatePerTrack(const TrackList& tracks, bool truePeak)
         }
     });
 
-    auto future = QtConcurrent::map(replayGainThreadPool(), m_scannedTracks, [this, truePeak](Track& track) {
-        scanTrack(track, truePeak);
-    });
+    auto future = QtConcurrent::map(replayGainThreadPool(), m_scannedTracks,
+                                    [this, truePeak](Track& track) { scanTrack(track, truePeak); });
 
     m_watcher->setFuture(future);
     m_runningWatchers.fetch_add(1, std::memory_order_acquire);

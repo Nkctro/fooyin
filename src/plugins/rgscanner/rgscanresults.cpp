@@ -99,25 +99,25 @@ void RGScanResults::accept()
     auto* okButton = m_buttonBox->button(QDialogButtonBox::Ok);
     okButton->setEnabled(false);
 
-    m_writeProgressConnection = QObject::connect(
-        m_library, &MusicLibrary::tracksWriteProgress, this,
-        [this, total, okButton](int current, int totalCount, const QString& filepath) {
-            const int maximum = totalCount > 0 ? totalCount : total;
-            if(m_progress->maximum() != maximum) {
-                m_progress->setMaximum(maximum);
-            }
-            const int clampedValue = std::clamp(current, 0, maximum);
-            m_progress->setValue(clampedValue);
-            if(clampedValue < maximum && !filepath.isEmpty()) {
-                m_status->setText(tr("Writing: %1").arg(filepath));
-            }
-            else if(clampedValue >= maximum && maximum > 0) {
-                m_status->setText(tr("Write finished"));
-            }
-            if(clampedValue >= maximum && maximum > 0) {
-                okButton->setEnabled(true);
-            }
-        });
+    m_writeProgressConnection
+        = QObject::connect(m_library, &MusicLibrary::tracksWriteProgress, this,
+                           [this, total, okButton](int current, int totalCount, const QString& filepath) {
+                               const int maximum = totalCount > 0 ? totalCount : total;
+                               if(m_progress->maximum() != maximum) {
+                                   m_progress->setMaximum(maximum);
+                               }
+                               const int clampedValue = std::clamp(current, 0, maximum);
+                               m_progress->setValue(clampedValue);
+                               if(clampedValue < maximum && !filepath.isEmpty()) {
+                                   m_status->setText(tr("Writing: %1").arg(filepath));
+                               }
+                               else if(clampedValue >= maximum && maximum > 0) {
+                                   m_status->setText(tr("Write finished"));
+                               }
+                               if(clampedValue >= maximum && maximum > 0) {
+                                   okButton->setEnabled(true);
+                               }
+                           });
 
     QObject::connect(
         m_library, &MusicLibrary::tracksMetadataChanged, this,
@@ -162,4 +162,3 @@ QSize RGScanResults::minimumSizeHint() const
     return QDialog::minimumSizeHint();
 }
 } // namespace Fooyin::RGScanner
-

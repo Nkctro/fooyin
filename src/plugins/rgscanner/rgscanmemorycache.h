@@ -9,8 +9,8 @@
 
 #pragma once
 
-#include <QByteArray>
 #include <QBuffer>
+#include <QByteArray>
 #include <QMutex>
 #include <QString>
 

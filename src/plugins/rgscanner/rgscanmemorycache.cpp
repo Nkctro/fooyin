@@ -18,11 +18,11 @@
 #include <QString>
 
 #ifdef Q_OS_WIN
-#    include <windows.h>
+#include <windows.h>
 #elif defined(Q_OS_LINUX)
-#    include <sys/sysinfo.h>
+#include <sys/sysinfo.h>
 #elif defined(Q_OS_DARWIN)
-#    include <sys/sysctl.h>
+#include <sys/sysctl.h>
 #endif
 
 #include <algorithm>
@@ -60,8 +60,8 @@ void MemoryCache::updateConfig(bool enabled, int ratio)
 
     m_enabled = enabled;
     if(!m_enabled || ratio <= 0) {
-        m_ratio        = 0;
-        m_limitBytes   = 0;
+        m_ratio         = 0;
+        m_limitBytes    = 0;
         m_reservedBytes = 0;
         return;
     }
@@ -77,7 +77,7 @@ void MemoryCache::updateConfig(bool enabled, int ratio)
         limit = static_cast<qint64>((8LL * 1024 * 1024 * 1024) * m_ratio / 100);
     }
 
-    m_limitBytes   = std::clamp(limit, qint64(0), MaxCacheBytes);
+    m_limitBytes    = std::clamp(limit, qint64(0), MaxCacheBytes);
     m_reservedBytes = (std::min)(m_reservedBytes, m_limitBytes);
 }
 
@@ -194,7 +194,7 @@ bool MemoryScopedReservation::load(const QString& filepath)
         return false;
     }
 
-    m_data = std::move(stagedData);
+    m_data      = std::move(stagedData);
     auto buffer = std::make_unique<QBuffer>(&m_data);
     if(!buffer->open(QIODevice::ReadOnly)) {
         m_data.clear();

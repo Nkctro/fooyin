@@ -81,8 +81,7 @@ void RGScannerPlugin::calculateReplayGain(RGScanType type, TrackList tracksToSca
     }
 
     const auto total = static_cast<int>(tracksToScan.size());
-    auto* progress
-        = new ElapsedProgressDialog(progressLabel, tr("Abort"), 0, total + 1, Utils::getMainWindow());
+    auto* progress   = new ElapsedProgressDialog(progressLabel, tr("Abort"), 0, total + 1, Utils::getMainWindow());
     progress->setAttribute(Qt::WA_DeleteOnClose);
     progress->setValue(0);
     progress->setWindowTitle(tr("ReplayGain Scan Progress"));
@@ -132,9 +131,8 @@ void RGScannerPlugin::calculateReplayGainForLibrary()
     }
 
     TrackList tracks = m_library->tracks();
-    std::erase_if(tracks, [](const Track& track) {
-        return !track.isValid() || !track.isEnabled() || track.isInArchive();
-    });
+    std::erase_if(tracks,
+                  [](const Track& track) { return !track.isValid() || !track.isEnabled() || track.isInArchive(); });
 
     if(tracks.empty()) {
         StatusEvent::post(tr("No suitable tracks found in the library for ReplayGain calculation"), 3000);

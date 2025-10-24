@@ -19,20 +19,20 @@
 
 #include "rgscannerpage.h"
 
+#include "rgscanmemorycache.h"
 #include "rgscanner.h"
 #include "rgscannerdefs.h"
-#include "rgscanmemorycache.h"
 
 #include <gui/widgets/scriptlineedit.h>
 #include <utils/settings/settingsmanager.h>
 
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QLabel>
 #include <QRadioButton>
 #include <QSpinBox>
-#include <QCheckBox>
 
 #include <algorithm>
 
@@ -155,7 +155,7 @@ void RGScannerPageWidget::load()
     m_threadLimit->setValue(std::clamp(savedLimit, 1, MaxThreadLimit));
 
     const bool memoryEnabled = m_settings->fileValue(MemoryCacheEnabledSetting, false).toBool();
-    const int memoryRatio    = std::clamp(m_settings->fileValue(MemoryCacheRatioSetting, DefaultMemoryCacheRatio).toInt(),
+    const int memoryRatio = std::clamp(m_settings->fileValue(MemoryCacheRatioSetting, DefaultMemoryCacheRatio).toInt(),
                                        1, MaxMemoryCacheRatio);
     m_useMemoryCache->setChecked(memoryEnabled);
     m_memoryRatio->setValue(memoryRatio);

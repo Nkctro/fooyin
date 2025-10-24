@@ -23,8 +23,8 @@
 #include <core/coresettings.h>
 #include <core/engine/ffmpeg/ffmpeginput.h>
 
-#include "rgscannerdefs.h"
 #include "rgscanmemorycache.h"
+#include "rgscannerdefs.h"
 #include <core/engine/ffmpeg/ffmpegutils.h>
 #include <core/scripting/scriptparser.h>
 #include <core/track.h>
@@ -49,8 +49,8 @@ extern "C"
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QLoggingCategory>
-#include <QThreadPool>
 #include <QString>
+#include <QThreadPool>
 #include <QtConcurrentMap>
 
 #include <algorithm>
@@ -80,7 +80,6 @@ QThreadPool* replayGainThreadPool()
     pool.setMaxThreadCount(configuredThreadLimit());
     return &pool;
 }
-
 
 struct FilterContextDeleter
 {
