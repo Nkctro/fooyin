@@ -21,9 +21,9 @@
 
 #include "fycore_export.h"
 
+#include <QString>
 #include <core/library/libraryinfo.h>
 #include <core/track.h>
-#include <QString>
 
 #include <QObject>
 
