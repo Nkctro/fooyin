@@ -33,15 +33,32 @@ constexpr auto MessageSplit = R"lit(([^:]+): (.+))lit";
 namespace {
 QIcon iconForType(QtMsgType type)
 {
+    // Cache icons per style instance to avoid repeated standardIcon lookups on hot paths.
+    static QStyle* cachedStyle = nullptr;
+    static QIcon infoIcon;
+    static QIcon warningIcon;
+    static QIcon criticalIcon;
+
+    if(QStyle* const currentStyle = QApplication::style()) {
+        if(currentStyle != cachedStyle || infoIcon.isNull() || warningIcon.isNull() || criticalIcon.isNull()) {
+            cachedStyle   = currentStyle;
+            infoIcon      = currentStyle->standardIcon(QStyle::SP_MessageBoxInformation);
+            warningIcon   = currentStyle->standardIcon(QStyle::SP_MessageBoxWarning);
+            criticalIcon  = currentStyle->standardIcon(QStyle::SP_MessageBoxCritical);
+        }
+    } else {
+        cachedStyle = nullptr;
+    }
+
     switch(type) {
         case(QtDebugMsg):
         case(QtInfoMsg):
-            return QApplication::style()->standardIcon(QStyle::SP_MessageBoxInformation);
+            return infoIcon;
         case(QtWarningMsg):
-            return QApplication::style()->standardIcon(QStyle::SP_MessageBoxWarning);
+            return warningIcon;
         case(QtCriticalMsg):
         case(QtFatalMsg):
-            return QApplication::style()->standardIcon(QStyle::SP_MessageBoxCritical);
+            return criticalIcon;
         default:
             return {};
     }
