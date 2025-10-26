@@ -26,13 +26,9 @@
 #include <utils/crypto.h>
 #include <utils/settings/settingsmanager.h>
 
-#include <algorithm>
-#include <deque>
-#include <numeric>
 #include <random>
 #include <ranges>
 #include <set>
-#include <unordered_map>
 
 using namespace Qt::StringLiterals;
 
@@ -132,17 +128,11 @@ public:
     int getShuffleIndex(int delta, Playlist::PlayModes mode, bool onlyCheck);
     int handleTrackShuffle(int delta, Playlist::PlayModes mode, bool onlyCheck);
     int handleAlbumShuffle(int delta, Playlist::PlayModes mode, bool onlyCheck);
-    int handleRandom(int delta, Playlist::PlayModes mode, bool onlyCheck);
     int handleNextAlbum(Playlist::PlayModes mode, int albumShuffleIndex, AlbumTracks& currentAlbum, int& nextIndex);
     int handlePreviousAlbum(Playlist::PlayModes mode, int albumShuffleIndex, AlbumTracks& currentAlbum, int& nextIndex);
 
     int getNextIndex(int delta, Playlist::PlayModes mode, bool onlyCheck);
     [[nodiscard]] std::optional<Track> getTrack(int index) const;
-    [[nodiscard]] bool inRecentRandomHistory(int index, int limit) const;
-    [[nodiscard]] int chooseRandomFromCandidates(std::vector<int> candidates, int historyLimit) const;
-    void recordRandomHistory(int index);
-    void invalidateRandomCache();
-    [[nodiscard]] int maxRandomHistorySize() const;
 
     UId m_id;
     int m_dbId{-1};
@@ -162,17 +152,6 @@ public:
     int m_albumShuffleIndex{-1};
     int m_trackInAlbumIndex{-1};
     std::vector<AlbumTracks> m_albumShuffleOrder;
-
-    struct RandomCache
-    {
-        int index{-1};
-        int delta{0};
-        Playlist::PlayModes mode{Playlist::Default};
-        bool valid{false};
-    };
-
-    RandomCache m_randomCache;
-    std::deque<int> m_randomHistory;
 
     bool m_isTemporary{false};
     bool m_modified{false};
@@ -366,63 +345,6 @@ int PlaylistPrivate::handleAlbumShuffle(int delta, Playlist::PlayModes mode, boo
     return currentAlbum.at(nextIndex);
 }
 
-int PlaylistPrivate::handleRandom(int delta, Playlist::PlayModes mode, bool onlyCheck)
-{
-    if(m_tracks.empty()) {
-        invalidateRandomCache();
-        return -1;
-    }
-
-    if(m_randomCache.valid && m_randomCache.delta == delta && m_randomCache.mode == mode) {
-        if(!onlyCheck) {
-            recordRandomHistory(m_randomCache.index);
-            invalidateRandomCache();
-        }
-        return m_randomCache.index;
-    }
-
-    std::vector<int> candidates;
-    if((mode & Playlist::RepeatAlbum) && m_currentTrackIndex >= 0) {
-        const AlbumTracks albumTracks = getAlbumTracks(m_currentTrackIndex);
-        candidates.assign(albumTracks.begin(), albumTracks.end());
-    }
-    else {
-        candidates.resize(m_tracks.size());
-        std::iota(candidates.begin(), candidates.end(), 0);
-    }
-
-    if(candidates.empty()) {
-        invalidateRandomCache();
-        return -1;
-    }
-
-    if(candidates.size() > 1) {
-        candidates.erase(std::remove(candidates.begin(), candidates.end(), m_currentTrackIndex), candidates.end());
-        if(candidates.empty()) {
-            candidates.emplace_back(m_currentTrackIndex);
-        }
-    }
-
-    const int candidateCount = static_cast<int>(candidates.size());
-    const int historyLimit   = candidateCount > 1 ? std::min(maxRandomHistorySize(), candidateCount - 1) : 0;
-
-    const int index = chooseRandomFromCandidates(std::move(candidates), historyLimit);
-    if(index < 0) {
-        invalidateRandomCache();
-        return -1;
-    }
-
-    if(onlyCheck) {
-        m_randomCache = {index, delta, mode, true};
-    }
-    else {
-        recordRandomHistory(index);
-        invalidateRandomCache();
-    }
-
-    return index;
-}
-
 int PlaylistPrivate::handleNextAlbum(Playlist::PlayModes mode, int albumShuffleIndex, AlbumTracks& currentAlbum,
                                      int& nextIndex)
 {
@@ -446,91 +368,6 @@ int PlaylistPrivate::handleNextAlbum(Playlist::PlayModes mode, int albumShuffleI
     currentAlbum = m_albumShuffleOrder.at(albumShuffleIndex);
 
     return albumShuffleIndex;
-}
-
-bool PlaylistPrivate::inRecentRandomHistory(int index, int limit) const
-{
-    if(limit <= 0) {
-        return false;
-    }
-
-    int checked = 0;
-    for(auto it = m_randomHistory.rbegin(); it != m_randomHistory.rend() && checked < limit; ++it) {
-        if(*it == index) {
-            return true;
-        }
-        ++checked;
-    }
-
-    return false;
-}
-
-int PlaylistPrivate::chooseRandomFromCandidates(std::vector<int> candidates, int historyLimit) const
-{
-    if(candidates.empty()) {
-        return -1;
-    }
-
-    std::vector<int> filtered;
-    const std::vector<int>* selectionPool{&candidates};
-
-    if(historyLimit > 0) {
-        filtered.reserve(candidates.size());
-        for(const int candidate : candidates) {
-            if(!inRecentRandomHistory(candidate, historyLimit)) {
-                filtered.emplace_back(candidate);
-            }
-        }
-
-        if(!filtered.empty()) {
-            selectionPool = &filtered;
-        }
-    }
-
-    if(selectionPool->empty()) {
-        return -1;
-    }
-
-    std::mt19937 gen(std::random_device{}());
-    std::uniform_int_distribution<int> dist(0, static_cast<int>(selectionPool->size()) - 1);
-    return selectionPool->at(dist(gen));
-}
-
-void PlaylistPrivate::recordRandomHistory(int index)
-{
-    if(index < 0) {
-        return;
-    }
-
-    const int maxHistory = maxRandomHistorySize();
-    if(maxHistory <= 0) {
-        m_randomHistory.clear();
-        return;
-    }
-
-    m_randomHistory.emplace_back(index);
-
-    while(std::cmp_greater(static_cast<int>(m_randomHistory.size()), maxHistory)) {
-        m_randomHistory.pop_front();
-    }
-}
-
-void PlaylistPrivate::invalidateRandomCache()
-{
-    m_randomCache = {};
-}
-
-int PlaylistPrivate::maxRandomHistorySize() const
-{
-    const int count = static_cast<int>(m_tracks.size());
-    if(count <= 1) {
-        return 0;
-    }
-    if(count <= 5) {
-        return count - 1;
-    }
-
-    return std::min(20, count / 2);
 }
 
 int PlaylistPrivate::handlePreviousAlbum(Playlist::PlayModes mode, int albumShuffleIndex, AlbumTracks& currentAlbum,
@@ -594,7 +431,13 @@ int PlaylistPrivate::getNextIndex(int delta, Playlist::PlayModes mode, bool only
     const int count = static_cast<int>(m_tracks.size());
 
     if(mode & Playlist::Random) {
-        return handleRandom(delta, mode, onlyCheck);
+        if(mode & Playlist::RepeatAlbum) {
+            return getRandomIndexInAlbum();
+        }
+
+        std::mt19937 gen(std::random_device{}());
+        std::uniform_int_distribution<int> dist(0, count - 1);
+        return dist(gen);
     }
 
     int nextIndex = m_currentTrackIndex;
@@ -803,9 +646,6 @@ void Playlist::reset()
     p->m_albumShuffleOrder.clear();
     p->m_albumShuffleIndex = -1;
     p->m_trackInAlbumIndex = -1;
-
-    p->m_randomHistory.clear();
-    p->invalidateRandomCache();
 }
 
 void Playlist::resetFlags()
@@ -878,8 +718,6 @@ void Playlist::replaceTracks(const TrackList& tracks)
         p->m_tracksModified = true;
         p->m_trackShuffleOrder.clear();
         p->m_albumShuffleOrder.clear();
-        p->m_randomHistory.clear();
-        p->invalidateRandomCache();
     }
 }
 
@@ -893,7 +731,6 @@ void Playlist::appendTracks(const TrackList& tracks)
     p->m_tracksModified = true;
     p->m_trackShuffleOrder.clear();
     p->m_albumShuffleOrder.clear();
-    p->invalidateRandomCache();
 }
 
 void Playlist::updateTrackAtIndex(int index, const Track& track)
@@ -912,9 +749,6 @@ std::vector<int> Playlist::removeTracks(const std::vector<int>& indexes)
     if(indexes.empty()) {
         return {};
     }
-
-    p->m_randomHistory.clear();
-    p->invalidateRandomCache();
 
     std::vector<int> removedIndexes;
     std::set<int> indexesToRemove{indexes.cbegin(), indexes.cend()};
